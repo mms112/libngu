@@ -201,6 +201,77 @@ STATIC mp_obj_t s_pubkey_to_bytes(size_t n_args, const mp_obj_t *args) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(s_pubkey_to_bytes_obj, 1, 2, s_pubkey_to_bytes);
 
+// combine public keys
+STATIC mp_obj_t s_pubkey_combine(mp_obj_t self_in, mp_obj_t pub_in) {
+    mp_obj_pubkey_t *self = MP_OBJ_TO_PTR(self_in);
+	mp_obj_pubkey_t *pub = MP_OBJ_TO_PTR(pub_in);
+
+    secp256k1_pubkey pk;
+	const secp256k1_pubkey* const pk_ins[2] = { &self->pubkey, &pub->pubkey };
+    int rc = secp256k1_ec_pubkey_combine(secp256k1_context_static, &pk, pk_ins, 2);
+    if(rc != 1) {
+        mp_raise_ValueError(MP_ERROR_TEXT("secp256k1_ec_pubkey_combine"));
+    }
+    //  create new tweaked object rather than updating self
+    mp_obj_pubkey_t *rv = m_new_obj(mp_obj_pubkey_t);
+    rv->base.type = &s_pubkey_type;
+    rv->pubkey = pk;
+    return MP_OBJ_FROM_PTR(rv);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(s_pubkey_combine_obj, s_pubkey_combine);
+
+// add tweak32 (x-only tweak) to pubkey
+STATIC mp_obj_t s_pubkey_xonly_tweak_add(mp_obj_t self_in, mp_obj_t tweak32_in) {
+    int rc;
+    mp_buffer_info_t tweak32;
+    mp_get_buffer_raise(tweak32_in, &tweak32, MP_BUFFER_READ);
+    if(tweak32.len != 32) {
+        mp_raise_ValueError(MP_ERROR_TEXT("tweak32 len != 32"));
+    }
+    mp_obj_pubkey_t *self = MP_OBJ_TO_PTR(self_in);
+	
+	secp256k1_xonly_pubkey xonly_in;
+	rc = secp256k1_xonly_pubkey_from_pubkey(secp256k1_context_static, &xonly_in, NULL, &self->pubkey);
+	if(rc != 1) {
+        mp_raise_ValueError(MP_ERROR_TEXT("secp256k1_xonly_pubkey_from_pubkey"));
+    }
+
+    //  create new tweaked object rather than updating self
+    mp_obj_pubkey_t *rv = m_new_obj(mp_obj_pubkey_t);
+    rv->base.type = &s_pubkey_type;
+    rc = secp256k1_xonly_pubkey_tweak_add(secp256k1_context_static, &rv->pubkey, &xonly_in, tweak32.buf);
+    if(rc != 1) {
+        mp_raise_ValueError(MP_ERROR_TEXT("secp256k1_xonly_pubkey_tweak_add"));
+    }
+    
+    return MP_OBJ_FROM_PTR(rv);
+
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(s_pubkey_xonly_tweak_add_obj, s_pubkey_xonly_tweak_add);
+
+// multiply public key by tweak value
+STATIC mp_obj_t s_pubkey_tweak_mul(mp_obj_t self_in, mp_obj_t tweak32_in) {
+    mp_obj_pubkey_t *self = MP_OBJ_TO_PTR(self_in);
+	mp_buffer_info_t tweak32;
+    mp_get_buffer_raise(tweak32_in, &tweak32, MP_BUFFER_READ);
+    if(tweak32.len != 32) {
+        mp_raise_ValueError(MP_ERROR_TEXT("tweak32 len != 32"));
+    }
+	
+	//  create new tweaked object rather than updating self
+    mp_obj_pubkey_t *rv = m_new_obj(mp_obj_pubkey_t);
+    rv->base.type = &s_pubkey_type;
+    rv->pubkey = self->pubkey;
+
+	int rc = secp256k1_ec_pubkey_tweak_mul(secp256k1_context_static, &rv->pubkey, tweak32.buf);
+    if(rc != 1) {
+        mp_raise_ValueError(MP_ERROR_TEXT("secp256k1_ec_pubkey_tweak_mul"));
+    }
+    
+    return MP_OBJ_FROM_PTR(rv);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(s_pubkey_tweak_mul_obj, s_pubkey_tweak_mul);
+
 // output xonly pubkey
 STATIC mp_obj_t s_xonly_pubkey_to_bytes(size_t n_args, const mp_obj_t *args) {
     mp_obj_xonly_pubkey_t *self = MP_OBJ_TO_PTR(args[0]);
@@ -624,6 +695,9 @@ STATIC const mp_obj_type_t s_sig_type = {
 // pubkeys and what you can do with them
 STATIC const mp_rom_map_elem_t s_pubkey_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_to_bytes), MP_ROM_PTR(&s_pubkey_to_bytes_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_combine), MP_ROM_PTR(&s_pubkey_combine_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_tweak_mul), MP_ROM_PTR(&s_pubkey_tweak_mul_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_xonly_tweak_add), MP_ROM_PTR(&s_pubkey_xonly_tweak_add_obj) },
 };
 STATIC MP_DEFINE_CONST_DICT(s_pubkey_locals_dict, s_pubkey_locals_dict_table);
 

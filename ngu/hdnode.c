@@ -237,6 +237,46 @@ printf("\n");
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_3(s_hdnode_serialize_obj, s_hdnode_serialize);
 
+STATIC mp_obj_t s_hdnode_serialize_raw(mp_obj_t self_in, mp_obj_t version_in, mp_obj_t want_private_in) {
+    // output BIP32 bytes
+    //  version bytes: uint32 w/ first 4 bytes (giving xpub/Zpub/etc)
+    //  private: flag, exporting private key else public part
+    // result is raw bytes
+    mp_obj_hdnode_t *self = MP_OBJ_TO_PTR(self_in);
+    raise_on_invalid(self);
+
+    uint32_t version = mp_obj_get_int(version_in);
+    bool want_private = !!mp_obj_get_int_truncated(want_private_in);
+
+    uint8_t     out[78], *p=out;
+
+    p = write_be32(p, version);
+    *(p++) = self->depth;
+    p = write_be32(p, self->parent_fp);
+    p = write_be32(p, self->child_num);
+    memcpy(p, self->chain_code, 32);
+    p += 32;
+    
+    if(want_private) {
+        if(!self->have_private) {
+            mp_raise_ValueError(MP_ERROR_TEXT("no privkey"));
+        }
+
+        *(p++) = 0;
+        memcpy(p, self->privkey, 32);
+        p += 32;
+    } else {
+        // 33 bytes of pubkey
+        memcpy(p, self->pubkey, 33);
+        p += 33;
+    }
+
+    assert(p == out+sizeof(out));
+	
+	return mp_obj_new_bytes(out, sizeof(out));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_3(s_hdnode_serialize_raw_obj, s_hdnode_serialize_raw);
+
 STATIC mp_obj_t s_hdnode_deserialize(mp_obj_t self_in, mp_obj_t encoded) {
     // deserialize into self, works from base58; returns version observed
     mp_obj_hdnode_t *self = MP_OBJ_TO_PTR(self_in);
@@ -569,6 +609,7 @@ STATIC const mp_rom_map_elem_t s_hdnode_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_privkey), MP_ROM_PTR(&s_hdnode_privkey_obj) },
     { MP_ROM_QSTR(MP_QSTR_pubkey), MP_ROM_PTR(&s_hdnode_pubkey_obj) },
     { MP_ROM_QSTR(MP_QSTR_serialize), MP_ROM_PTR(&s_hdnode_serialize_obj) },
+	{ MP_ROM_QSTR(MP_QSTR_serialize_raw), MP_ROM_PTR(&s_hdnode_serialize_raw_obj) },
     { MP_ROM_QSTR(MP_QSTR_deserialize), MP_ROM_PTR(&s_hdnode_deserialize_obj) },
     { MP_ROM_QSTR(MP_QSTR_from_master), MP_ROM_PTR(&s_hdnode_from_master_obj) },
     { MP_ROM_QSTR(MP_QSTR_from_chaincode_privkey), MP_ROM_PTR(&s_hdnode_from_chaincode_privkey_obj) },
